@@ -3,6 +3,7 @@ package blas
 import (
 	"math"
 	"math/rand/v2"
+	"slices"
 	"testing"
 )
 
@@ -48,6 +49,36 @@ func TestGemm(t *testing.T) {
 					}
 				}
 			}
+		}
+	}
+}
+
+// TestGemmSplitK pins what xvector's frameLevel relies on: for its 512-wide
+// layers, one GEMM per 512-deep slice of A and B, each adding into C, gives
+// the same bits as one GEMM over the whole depth. That holds while kc
+// divides 512.
+func TestGemmSplitK(t *testing.T) {
+	const m, n, width, parts = 37, 29, 2 * BlockDepth, 3
+	rng := rand.New(rand.NewPCG(3, 4)) //nolint:gosec // G404: fixed-seed test data, not security
+	a, b, c := make([]float32, m*width*parts), make([]float32, width*parts*n), make([]float32, m*n)
+	for _, s := range [][]float32{a, b, c} {
+		for i := range s {
+			s[i] = rng.Float32()*2 - 1
+		}
+	}
+	for name, kn := range map[string]kernel{"4x4": {4, 4, kernel4x4}, "best": best} {
+		whole := slices.Clone(c)
+		gemm(kn, m, n, width*parts, a, b, 1, whole)
+		split := slices.Clone(c)
+		for k := range parts {
+			ak := make([]float32, 0, m*width)
+			for i := range m {
+				ak = append(ak, a[i*width*parts+k*width:i*width*parts+(k+1)*width]...)
+			}
+			gemm(kn, m, n, width, ak, b[k*width*n:], 1, split)
+		}
+		if !slices.Equal(whole, split) {
+			t.Fatalf("%s: GEMM split into %d-deep parts differs from one GEMM", name, width)
 		}
 	}
 }
