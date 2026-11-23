@@ -58,7 +58,7 @@ func TestGemm(t *testing.T) {
 // the same bits as one GEMM over the whole depth. That holds while kc
 // divides 512.
 func TestGemmSplitK(t *testing.T) {
-	const m, n, width, parts = 37, 29, 512, 3
+	const m, n, width, parts = 37, 29, 2 * BlockDepth, 3
 	rng := rand.New(rand.NewPCG(3, 4)) //nolint:gosec // G404: fixed-seed test data, not security
 	a, b, c := make([]float32, m*width*parts), make([]float32, width*parts*n), make([]float32, m*n)
 	for _, s := range [][]float32{a, b, c} {
@@ -78,7 +78,7 @@ func TestGemmSplitK(t *testing.T) {
 			gemm(kn, m, n, width, ak, b[k*width*n:], 1, split)
 		}
 		if !slices.Equal(whole, split) {
-			t.Fatalf("%s: GEMM split into %d-deep parts differs from one GEMM (kc %d)", name, width, kc)
+			t.Fatalf("%s: GEMM split into %d-deep parts differs from one GEMM", name, width)
 		}
 	}
 }

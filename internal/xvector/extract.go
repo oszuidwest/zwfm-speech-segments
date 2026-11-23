@@ -208,8 +208,17 @@ func (m *Model) frameLevel(in []float32, n int, s *scratch) []float32 {
 				copy(y[r*l.out:(r+1)*l.out], l.bias)
 			}
 		})
-		if li == 0 {
-			// tdnn1's 30-wide rows are spliced side by side for one GEMM.
+		if len(l.offsets) == 1 || dim%blas.BlockDepth == 0 {
+			// One GEMM per offset straight from the input rows. With several
+			// offsets this adds the same sums in the same order as one GEMM
+			// over spliced rows, because each part is a multiple of
+			// blas.BlockDepth deep.
+			for k, o := range l.offsets {
+				blas.Sgemm(rows, l.out, dim, x[(o-lo)*dim:], l.w[k*dim*l.out:], 1, y)
+			}
+		} else {
+			// Other widths, such as tdnn1's 30, are spliced side by side
+			// for one GEMM.
 			spliced := s.buf(2*li, rows*l.in)
 			parallelRows(rows, func(r0, r1 int) {
 				for r := r0; r < r1; r++ {
@@ -220,13 +229,6 @@ func (m *Model) frameLevel(in []float32, n int, s *scratch) []float32 {
 				}
 			})
 			blas.Sgemm(rows, l.out, l.in, spliced, l.w, 1, y)
-		} else {
-			// One GEMM per offset straight from the input rows. The GEMM's
-			// block depth divides 512, so this adds the same sums in the same
-			// order as one GEMM over spliced rows (blas TestGemmSplitK).
-			for k, o := range l.offsets {
-				blas.Sgemm(rows, l.out, dim, x[(o-lo)*dim:], l.w[k*dim*l.out:], 1, y)
-			}
 		}
 		parallelRows(rows, func(r0, r1 int) {
 			for r := r0; r < r1; r++ {
