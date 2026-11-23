@@ -149,12 +149,16 @@ func TestComputeGolden(t *testing.T) {
 func TestQuartiles(t *testing.T) {
 	r := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // test data, not security
 	for _, n := range []int{9, 10, 11, 12, 101, 1000} {
-		for _, distinct := range []int{1, 2, 3, 0} { // 0: random floats
+		for _, distinct := range []int{1, 2, 3, 0, -1} { // 0: random floats, -1: organ pipe
 			col := make([]float32, n)
 			for i := range col {
-				col[i] = r.Float32()
-				if distinct > 0 {
+				switch {
+				case distinct > 0:
 					col[i] = float32(r.IntN(distinct))
+				case distinct == 0:
+					col[i] = r.Float32()
+				default: // defeats the middle pivot; from about 15 values nth takes its sort fallback
+					col[i] = float32(min(i, n-i))
 				}
 			}
 			s, q := slices.Sorted(slices.Values(col)), n/4

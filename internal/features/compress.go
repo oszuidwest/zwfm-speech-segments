@@ -2,6 +2,7 @@ package features
 
 import (
 	"math"
+	"math/bits"
 	"slices"
 	"sync"
 )
@@ -57,9 +58,15 @@ func quartiles(col []float32) [4]float32 {
 // nth returns the value at position k of s in sorted order, like the
 // std::nth_element that Kaldi uses. It reorders s so that no value before k
 // is larger and none after k is smaller, so a later position can be selected
-// in s[k:]. s must not hold NaN.
+// in s[k:]. s must not hold NaN. Like introselect, it sorts what is left
+// after 2·log2(n) partition rounds, so adversarial orders such as an organ
+// pipe stay O(n log n).
 func nth(s []float32, k int) float32 {
-	for len(s) > 1 {
+	for rounds := 2 * bits.Len(uint(len(s))); len(s) > 1; rounds-- {
+		if rounds == 0 {
+			slices.Sort(s)
+			return s[k]
+		}
 		p := s[len(s)/2]
 		i, j := 0, len(s)-1
 		for i <= j {
