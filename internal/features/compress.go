@@ -32,20 +32,58 @@ func compress(frames int, data []float32) {
 			for r := range frames {
 				col[r] = data[r*numCeps+c]
 			}
-			sorted := slices.Clone(col)
-			slices.Sort(sorted)
-			q := frames / 4
-			u0 := min(g.toUint16(sorted[0]), 65532)
-			u25 := min(max(g.toUint16(sorted[q]), u0+1), 65533)
-			u75 := min(max(g.toUint16(sorted[3*q]), u25+1), 65534)
-			u100 := max(g.toUint16(sorted[frames-1]), u75+1)
+			v := quartiles(col)
+			u0 := min(g.toUint16(v[0]), 65532)
+			u25 := min(max(g.toUint16(v[1]), u0+1), 65533)
+			u75 := min(max(g.toUint16(v[2]), u25+1), 65534)
+			u100 := max(g.toUint16(v[3]), u75+1)
 			p := [4]float32{g.toFloat(u0), g.toFloat(u25), g.toFloat(u75), g.toFloat(u100)}
-			for r, v := range col {
-				data[r*numCeps+c] = fromChar(p, toChar(p, v))
+			for r := range frames {
+				i := r*numCeps + c
+				data[i] = fromChar(p, toChar(p, data[i]))
 			}
 		})
 	}
 	wg.Wait()
+}
+
+// quartiles returns the values at sorted positions 0, n/4, 3*(n/4) and n-1
+// of col, the four percentiles of Kaldi's ComputeColHeader. It reorders col.
+func quartiles(col []float32) [4]float32 {
+	q := len(col) / 4
+	return [4]float32{slices.Min(col), nth(col, q), nth(col[q:], 2*q), slices.Max(col)}
+}
+
+// nth returns the value at position k of s in sorted order, like the
+// std::nth_element that Kaldi uses. It reorders s so that no value before k
+// is larger and none after k is smaller, so a later position can be selected
+// in s[k:]. s must not hold NaN.
+func nth(s []float32, k int) float32 {
+	for len(s) > 1 {
+		p := s[len(s)/2]
+		i, j := 0, len(s)-1
+		for i <= j {
+			for s[i] < p {
+				i++
+			}
+			for s[j] > p {
+				j--
+			}
+			if i <= j {
+				s[i], s[j] = s[j], s[i]
+				i, j = i+1, j-1
+			}
+		}
+		switch {
+		case k <= j:
+			s = s[:j+1]
+		case k >= i:
+			s, k = s[i:], k-i
+		default:
+			return s[k] // s[j+1:i] all equal p
+		}
+	}
+	return s[0]
 }
 
 // header is the GlobalHeader of a CompressedMatrix: the minimum and range of

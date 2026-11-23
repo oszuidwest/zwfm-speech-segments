@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -139,6 +141,28 @@ func TestComputeGolden(t *testing.T) {
 	t.Logf("mean abs diff %.4f, max %.2f", sum/float64(len(want)), worst)
 	if sum/float64(len(want)) > 0.02 {
 		t.Errorf("features differ from Kaldi beyond dither")
+	}
+}
+
+// TestQuartiles pins the selection in compress against a full sort, on
+// columns with few distinct values and on random ones.
+func TestQuartiles(t *testing.T) {
+	r := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // test data, not security
+	for _, n := range []int{9, 10, 11, 12, 101, 1000} {
+		for _, distinct := range []int{1, 2, 3, 0} { // 0: random floats
+			col := make([]float32, n)
+			for i := range col {
+				col[i] = r.Float32()
+				if distinct > 0 {
+					col[i] = float32(r.IntN(distinct))
+				}
+			}
+			s, q := slices.Sorted(slices.Values(col)), n/4
+			want := [4]float32{s[0], s[q], s[3*q], s[n-1]}
+			if got := quartiles(col); got != want {
+				t.Errorf("n=%d distinct=%d: got %v, want %v", n, distinct, got, want)
+			}
+		}
 	}
 }
 
