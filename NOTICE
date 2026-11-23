@@ -14,6 +14,10 @@ Apache License, Version 2.0. internal/diarize/vad-classifier.json holds the
 parameters of its voice activity classifier, exported from
 recipe/model/xvector-classifier.pkl.
 
+internal/diarize/eigen.go contains an adapted copy of Dsyev and Dsteqr from
+Gonum (https://github.com/gonum/gonum), copyright the Gonum Authors and
+licensed under the BSD 3-Clause license, whose text is in that file.
+
 At run time the program downloads the x-vector and PLDA model files that
 bbc-speech-segmenter distributes (the DIHARD 2019 baseline x-vector model).
 They are not part of this repository.

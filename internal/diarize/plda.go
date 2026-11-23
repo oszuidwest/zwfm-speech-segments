@@ -3,7 +3,6 @@ package diarize
 import (
 	"fmt"
 	"math"
-	"slices"
 
 	"gonum.org/v1/gonum/mat"
 
@@ -128,26 +127,7 @@ func estPCA(y *mat.Dense, target float64) *mat.Dense {
 		dim++
 	}
 	dim = min(dim, d)
-	return mat.DenseCopyOf(vecs.Slice(0, d, 0, dim).T())
-}
-
-// eigDesc returns eigenvalues from greatest to smallest and the matching
-// eigenvectors as columns (Kaldi Eig followed by SortSvd).
-func eigDesc(s *mat.SymDense) ([]float64, *mat.Dense) {
-	var es mat.EigenSym
-	if !es.Factorize(s, true) {
-		panic("diarize: eigen decomposition failed")
-	}
-	vals := es.Values(nil) // ascending
-	var vecs mat.Dense
-	es.VectorsTo(&vecs)
-	d := len(vals)
-	out := mat.NewDense(d, d, nil)
-	for c := range d {
-		out.SetCol(c, mat.Col(nil, d-1-c, &vecs))
-	}
-	slices.Reverse(vals)
-	return vals, out
+	return mat.DenseCopyOf(vecs.Slice(0, dim, 0, d))
 }
 
 // scores is ivector-plda-scoring-dense --target-energy 0.9 for one
@@ -174,13 +154,13 @@ func (p plda) transform(y, pca *mat.Dense) (transformed *mat.Dense, psi []float6
 	if err := t1.InverseTri(&l); err != nil {
 		panic(err)
 	}
-	psi, u := eigDesc(sandwich(&t1, between))
+	psi, ut := eigDesc(sandwich(&t1, between))
 	for k := range psi {
 		psi[k] = max(psi[k], 0)
 	}
 	// Map from the pre-PCA space: U^T C^{-1} P.
 	var tr, full mat.Dense
-	tr.Mul(u.T(), &t1)
+	tr.Mul(ut, &t1)
 	full.Mul(&tr, pca)
 	var offset mat.VecDense
 	offset.MulVec(&full, mat.NewVecDense(len(p.mean), p.mean))
