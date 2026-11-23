@@ -1,0 +1,86 @@
+#include "textflag.h"
+
+// func kernel6x16(k int, a, b, c *float32, ldc int)
+// c[r*ldc : r*ldc+16] += sum over p of a[p*6+r] * b[p*16 : p*16+16], r = 0..5.
+// Y0-Y1 hold a row of B, Y2-Y3 a broadcast value of A, Y4-Y15 the block
+// (row r in Y(4+2r) and Y(5+2r)). Needs AVX2 and FMA; the caller checks them.
+TEXT ·kernel6x16(SB), NOSPLIT, $0-40
+	MOVQ k+0(FP), CX
+	MOVQ a+8(FP), SI
+	MOVQ b+16(FP), DI
+	MOVQ c+24(FP), R8
+	MOVQ ldc+32(FP), R9
+	SHLQ $2, R9 // row stride in bytes
+	VXORPS Y4, Y4, Y4
+	VXORPS Y5, Y5, Y5
+	VXORPS Y6, Y6, Y6
+	VXORPS Y7, Y7, Y7
+	VXORPS Y8, Y8, Y8
+	VXORPS Y9, Y9, Y9
+	VXORPS Y10, Y10, Y10
+	VXORPS Y11, Y11, Y11
+	VXORPS Y12, Y12, Y12
+	VXORPS Y13, Y13, Y13
+	VXORPS Y14, Y14, Y14
+	VXORPS Y15, Y15, Y15
+	TESTQ CX, CX
+	JZ    done
+
+loop:
+	VMOVUPS      (DI), Y0
+	VMOVUPS      32(DI), Y1
+	VBROADCASTSS (SI), Y2
+	VFMADD231PS  Y0, Y2, Y4
+	VFMADD231PS  Y1, Y2, Y5
+	VBROADCASTSS 4(SI), Y3
+	VFMADD231PS  Y0, Y3, Y6
+	VFMADD231PS  Y1, Y3, Y7
+	VBROADCASTSS 8(SI), Y2
+	VFMADD231PS  Y0, Y2, Y8
+	VFMADD231PS  Y1, Y2, Y9
+	VBROADCASTSS 12(SI), Y3
+	VFMADD231PS  Y0, Y3, Y10
+	VFMADD231PS  Y1, Y3, Y11
+	VBROADCASTSS 16(SI), Y2
+	VFMADD231PS  Y0, Y2, Y12
+	VFMADD231PS  Y1, Y2, Y13
+	VBROADCASTSS 20(SI), Y3
+	VFMADD231PS  Y0, Y3, Y14
+	VFMADD231PS  Y1, Y3, Y15
+	ADDQ         $24, SI
+	ADDQ         $64, DI
+	DECQ         CX
+	JNZ          loop
+
+done:
+	VADDPS  (R8), Y4, Y4
+	VADDPS  32(R8), Y5, Y5
+	VMOVUPS Y4, (R8)
+	VMOVUPS Y5, 32(R8)
+	ADDQ    R9, R8
+	VADDPS  (R8), Y6, Y6
+	VADDPS  32(R8), Y7, Y7
+	VMOVUPS Y6, (R8)
+	VMOVUPS Y7, 32(R8)
+	ADDQ    R9, R8
+	VADDPS  (R8), Y8, Y8
+	VADDPS  32(R8), Y9, Y9
+	VMOVUPS Y8, (R8)
+	VMOVUPS Y9, 32(R8)
+	ADDQ    R9, R8
+	VADDPS  (R8), Y10, Y10
+	VADDPS  32(R8), Y11, Y11
+	VMOVUPS Y10, (R8)
+	VMOVUPS Y11, 32(R8)
+	ADDQ    R9, R8
+	VADDPS  (R8), Y12, Y12
+	VADDPS  32(R8), Y13, Y13
+	VMOVUPS Y12, (R8)
+	VMOVUPS Y13, 32(R8)
+	ADDQ    R9, R8
+	VADDPS  (R8), Y14, Y14
+	VADDPS  32(R8), Y15, Y15
+	VMOVUPS Y14, (R8)
+	VMOVUPS Y15, 32(R8)
+	VZEROUPPER
+	RET

@@ -1,0 +1,19 @@
+zwfm-speech-segments
+Copyright 2026 Streekomroep ZuidWest
+
+This product contains Go translations of parts of the Kaldi speech
+recognition toolkit (https://github.com/kaldi-asr/kaldi): feature
+extraction, sliding-window CMN, compressed-matrix rounding, nnet3 x-vector
+extraction, PLDA scoring and agglomerative clustering. Kaldi is copyright
+the Kaldi authors and licensed under the Apache License, Version 2.0.
+
+This product contains Go translations of the recipe and post-processing
+scripts of bbc-speech-segmenter (https://github.com/bbc/bbc-speech-segmenter)
+by Matt Haynes and Misa Ogura, BBC Research & Development, licensed under the
+Apache License, Version 2.0. internal/diarize/vad-classifier.json holds the
+parameters of its voice activity classifier, exported from
+recipe/model/xvector-classifier.pkl.
+
+At run time the program downloads the x-vector and PLDA model files that
+bbc-speech-segmenter distributes (the DIHARD 2019 baseline x-vector model).
+They are not part of this repository.
