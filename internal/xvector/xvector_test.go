@@ -2,7 +2,9 @@ package xvector
 
 import (
 	"bufio"
+	"compress/gzip"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -13,27 +15,25 @@ import (
 	"github.com/oszuidwest/zwfm-speech-segments/internal/model"
 )
 
-// hourDir holds Kaldi's reference output for one hour of radio. The golden
-// tests compare against it and skip when its files are missing.
-var hourDir = filepath.Join("..", "..", "data", "zuidwest", "2026-11-23_08")
+// goldenDir holds Kaldi's reference output for a short recording. See
+// testdata/README.md.
+var goldenDir = filepath.Join("..", "..", "testdata")
 
-// need skips the test when any of paths is missing.
-func need(t *testing.T, paths ...string) {
-	for _, p := range paths {
-		if _, err := os.Stat(p); err != nil {
-			t.Skipf("golden file missing: %s", p)
-		}
-	}
-}
-
-// lines calls fn for each line of the file at path.
+// lines calls fn for each line of the file at path, gunzipping it when its
+// name ends in .gz.
 func lines(t *testing.T, path string, fn func(string)) {
 	f, err := os.Open(path) //nolint:gosec // G304: test reads its own golden files
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = f.Close() }() // read-only file: a close error loses nothing
-	sc := bufio.NewScanner(f)
+	var r io.Reader = f
+	if strings.HasSuffix(path, ".gz") {
+		if r, err = gzip.NewReader(f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 1<<20), 1<<20)
 	for sc.Scan() {
 		fn(sc.Text())
@@ -59,9 +59,9 @@ func floats(t *testing.T, fields []string) []float32 {
 	return out
 }
 
-// readCMVN reads golden/cmvn.txt: "key  [", then one row of 30 per line.
+// readCMVN reads cmvn.txt.gz: "key  [", then one row of 30 per line.
 func readCMVN(t *testing.T) (frames int, feats []float32) {
-	lines(t, filepath.Join(hourDir, "golden", "cmvn.txt"), func(l string) {
+	lines(t, filepath.Join(goldenDir, "cmvn.txt.gz"), func(l string) {
 		if strings.HasSuffix(l, "[") {
 			return
 		}
@@ -73,16 +73,14 @@ func readCMVN(t *testing.T) (frames int, feats []float32) {
 // TestWindowsGolden pins Windows to Kaldi's subsegments file, window by
 // window.
 func TestWindowsGolden(t *testing.T) {
-	subs := filepath.Join(hourDir, "seg", "xvectors", "subsegments")
-	need(t, subs)
 	var want []string
-	lines(t, subs, func(l string) {
+	lines(t, filepath.Join(goldenDir, "seg", "xvectors", "subsegments"), func(l string) {
 		f := strings.Fields(l)
 		want = append(want, f[2]+" "+f[3])
 	})
-	// The recording has 359999 frames (golden/cmvn.txt rows); its segment
-	// ends at 3599.990.
-	got := Windows(359999)
+	// The recording has 14480 frames (cmvn.txt.gz rows); its segment ends
+	// at 144.800.
+	got := Windows(14480)
 	if len(got) != len(want) {
 		t.Fatalf("%d windows, Kaldi has %d", len(got), len(want))
 	}
@@ -104,23 +102,20 @@ func TestLoad(t *testing.T) {
 	}
 }
 
-// TestExtractGolden compares Extract with Kaldi's x-vectors for the hour and
+// TestExtractGolden compares Extract with Kaldi's x-vectors and
 // requires a minimum cosine similarity of 0.99999 for every window.
 func TestExtractGolden(t *testing.T) {
 	dir, err := model.Dir()
 	if err != nil {
 		t.Skip("model not available:", err)
 	}
-	golden := filepath.Join(hourDir, "golden", "xvectors.txt")
-	need(t, golden, filepath.Join(hourDir, "golden", "cmvn.txt"))
-
 	m, err := Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	frames, feats := readCMVN(t)
 	var want [][]float32
-	lines(t, golden, func(l string) { want = append(want, floats(t, strings.Fields(l)[1:])) })
+	lines(t, filepath.Join(goldenDir, "xvectors.txt.gz"), func(l string) { want = append(want, floats(t, strings.Fields(l)[1:])) })
 
 	got := m.Extract(frames, feats, Windows(frames))
 	if len(got) != len(want) {

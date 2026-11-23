@@ -2,7 +2,9 @@ package diarize
 
 import (
 	"bufio"
+	"compress/gzip"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -14,10 +16,9 @@ import (
 	"github.com/oszuidwest/zwfm-speech-segments/internal/model"
 )
 
-// goldenDir holds the Kaldi reference output of the BBC recipe for one hour
-// of radio (golden/ and seg/). Tests that need it are skipped when it is
-// missing.
-const goldenDir = "../../data/zuidwest/2026-11-23_08"
+// goldenDir holds the Kaldi reference output of the BBC recipe for a short
+// recording. See testdata/README.md.
+const goldenDir = "../../testdata"
 
 // golden is the reference data, indexed by x-vector key where it is keyed.
 type golden struct {
@@ -31,14 +32,11 @@ type golden struct {
 }
 
 // loadGolden reads the reference x-vectors, windows, VAD output, cluster
-// labels and diarize.stm, or skips the test when they are missing.
+// labels and diarize.stm.
 func loadGolden(t *testing.T) *golden {
 	t.Helper()
-	if _, err := os.Stat(filepath.Join(goldenDir, "golden", "xvectors.txt")); err != nil {
-		t.Skip("golden data missing")
-	}
 	g := &golden{probs: map[string]float64{}, kept: map[string]bool{}, labels: map[string]string{}}
-	eachLine(t, "golden/xvectors.txt", func(f []string) {
+	eachLine(t, "xvectors.txt.gz", func(f []string) {
 		g.keys = append(g.keys, f[0])
 		v := make([]float32, 0, len(f)-3)
 		for _, s := range f[2 : len(f)-1] {
@@ -72,15 +70,29 @@ func loadGolden(t *testing.T) *golden {
 	return g
 }
 
-// eachLine calls fn with the fields of each non-empty line of a golden file.
-func eachLine(t *testing.T, name string, fn func([]string)) {
+// open opens a golden file, gunzipping it when its name ends in .gz. The
+// file is closed when the test ends.
+func open(t *testing.T, name string) io.Reader {
 	t.Helper()
 	f, err := os.Open(filepath.Join(goldenDir, name)) //nolint:gosec // G304: fixed test data paths
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = f.Close() }()
-	sc := bufio.NewScanner(f)
+	t.Cleanup(func() { _ = f.Close() })
+	if !strings.HasSuffix(name, ".gz") {
+		return f
+	}
+	z, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return z
+}
+
+// eachLine calls fn with the fields of each non-empty line of a golden file.
+func eachLine(t *testing.T, name string, fn func([]string)) {
+	t.Helper()
+	sc := bufio.NewScanner(open(t, name))
 	sc.Buffer(nil, 1<<24)
 	for sc.Scan() {
 		if fields := strings.Fields(sc.Text()); len(fields) > 0 {
@@ -101,15 +113,10 @@ func parse(t *testing.T, s string) float64 {
 	return v
 }
 
-// goldenScores reads golden/plda_scores.txt, an n x n Kaldi text matrix of
-// the form "key [ values ]".
+// goldenScores reads plda_scores.txt.gz, an n x n Kaldi text matrix of the
+// form "key [ values ]".
 func goldenScores(t *testing.T, n int) []float32 {
-	f, err := os.Open(filepath.Join(goldenDir, "golden", "plda_scores.txt"))
-	if err != nil {
-		t.Skip("plda_scores.txt missing")
-	}
-	defer func() { _ = f.Close() }()
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(open(t, "plda_scores.txt.gz"))
 	sc.Split(bufio.ScanWords)
 	sc.Scan() // key
 	out := make([]float32, 0, n*n)
@@ -126,7 +133,7 @@ func goldenScores(t *testing.T, n int) []float32 {
 		t.Fatal(err)
 	}
 	if len(out) != n*n {
-		t.Fatalf("plda_scores.txt has %d values, want %d", len(out), n*n)
+		t.Fatalf("plda_scores.txt.gz has %d values, want %d", len(out), n*n)
 	}
 	return out
 }
@@ -213,7 +220,7 @@ func TestRun(t *testing.T) {
 	}
 	t.Logf("PLDA: max |score - golden| = %.3g", maxAbs)
 	if maxAbs > 0.01 {
-		t.Error("PLDA scores differ from golden/plda_scores.txt")
+		t.Error("PLDA scores differ from plda_scores.txt.gz")
 	}
 	labels := cluster(scores, n, clusterThreshold)
 	if !sameClusters(labels, g.keys, g.labels) {

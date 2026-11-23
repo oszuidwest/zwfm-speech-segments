@@ -3,6 +3,7 @@ package features
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"encoding/binary"
 	"math"
 	"math/rand/v2"
@@ -14,16 +15,16 @@ import (
 	"time"
 )
 
-// goldenDir holds one hour of audio and the output of the Kaldi recipe on
-// it, used as reference. Tests that need it skip when it is missing.
-var goldenDir = filepath.Join("..", "..", "data", "zuidwest", "2026-11-23_08")
+// goldenDir holds a short recording and the output of the Kaldi recipe on
+// it, used as reference. See testdata/README.md.
+var goldenDir = filepath.Join("..", "..", "testdata")
 
 // readWAV returns the samples of a 16 kHz mono s16 WAV. It walks the RIFF
-// chunks, because the file has a LIST chunk before "data".
+// chunks, because a WAV can have other chunks, such as LIST, before "data".
 func readWAV(t testing.TB, path string) []int16 {
 	data, err := os.ReadFile(path) //nolint:gosec // path is a test fixture under goldenDir
 	if err != nil {
-		t.Skipf("no golden audio: %v", err)
+		t.Fatal(err)
 	}
 	if len(data) < 12 || string(data[:4]) != "RIFF" || string(data[8:12]) != "WAVE" {
 		t.Fatalf("%s: not a WAV file", path)
@@ -51,14 +52,19 @@ func readWAV(t testing.TB, path string) []int16 {
 	return nil
 }
 
-// readKaldiText reads a one-utterance Kaldi text archive ("key [", rows, "]").
+// readKaldiText reads a gzipped one-utterance Kaldi text archive ("key [",
+// rows, "]").
 func readKaldiText(t testing.TB, path string) (rows int, out []float32) {
 	f, err := os.Open(path) //nolint:gosec // path is a test fixture under goldenDir
 	if err != nil {
-		t.Skipf("no golden features: %v", err)
+		t.Fatal(err)
 	}
 	defer func() { _ = f.Close() }()
-	sc := bufio.NewScanner(f)
+	z, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := bufio.NewScanner(z)
 	sc.Buffer(make([]byte, 1<<20), 1<<20)
 	for sc.Scan() {
 		line := sc.Bytes()
@@ -109,8 +115,8 @@ func agreement(got, want []float32) (share float64, jumps int) {
 // exceptions are values at a step edge, because the text file holds only
 // 7 digits.
 func TestCMNGolden(t *testing.T) {
-	frames, kaldiMFCC := readKaldiText(t, filepath.Join(goldenDir, "golden", "mfcc.txt"))
-	_, want := readKaldiText(t, filepath.Join(goldenDir, "golden", "cmvn.txt"))
+	frames, kaldiMFCC := readKaldiText(t, filepath.Join(goldenDir, "mfcc.txt.gz"))
+	_, want := readKaldiText(t, filepath.Join(goldenDir, "cmvn.txt.gz"))
 	got := slidingCMN(frames, kaldiMFCC)
 	compress(frames, got)
 	share, jumps := agreement(got, want)
@@ -122,11 +128,15 @@ func TestCMNGolden(t *testing.T) {
 
 // TestComputeGolden pins the whole pipeline against Kaldi's CMN features.
 // Kaldi's dither noise cannot be reproduced; it moves near-silent frames
-// and, through the matrix extremes, the compression grid, so the test bounds
-// the mean difference instead of requiring equality.
+// and mel bands, and through the matrix extremes the compression grid, so
+// the test bounds the mean difference instead of requiring equality. The
+// bound depends on the audio. On the test clip the mean is 0.028, and noise
+// of the dither's size added to the audio moves this port's own output by
+// 0.023. Frames one sample off give 0.055, a lifter of 23 instead of 22
+// gives 0.36.
 func TestComputeGolden(t *testing.T) {
 	pcm := readWAV(t, filepath.Join(goldenDir, "audio.wav"))
-	wantFrames, want := readKaldiText(t, filepath.Join(goldenDir, "golden", "cmvn.txt"))
+	wantFrames, want := readKaldiText(t, filepath.Join(goldenDir, "cmvn.txt.gz"))
 	start := time.Now()
 	frames, got := Compute(pcm)
 	t.Logf("Compute took %v", time.Since(start))
@@ -139,7 +149,7 @@ func TestComputeGolden(t *testing.T) {
 		sum, worst = sum+d, max(worst, d)
 	}
 	t.Logf("mean abs diff %.4f, max %.2f", sum/float64(len(want)), worst)
-	if sum/float64(len(want)) > 0.02 {
+	if sum/float64(len(want)) > 0.04 {
 		t.Errorf("features differ from Kaldi beyond dither")
 	}
 }
@@ -170,7 +180,7 @@ func TestQuartiles(t *testing.T) {
 	}
 }
 
-// BenchmarkCompute times Compute on the golden hour of audio.
+// BenchmarkCompute times Compute on the golden audio.
 func BenchmarkCompute(b *testing.B) {
 	pcm := readWAV(b, filepath.Join(goldenDir, "audio.wav"))
 	for b.Loop() {
