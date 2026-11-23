@@ -1,8 +1,8 @@
 # zwfm-speech-segments
 
-Finds where people speak in an hour of radio, and groups the speech by voice. It reads an hour from the ZuidWest audio logger and prints the speech segments as JSON.
+Finds where people speak in an audio recording, and groups the speech by voice. Give it any file or URL that ffmpeg can read, and it prints the speech segments as JSON.
 
-It is a Go port of [bbc-speech-segmenter](https://github.com/bbc/bbc-speech-segmenter) by BBC Research & Development. It runs the same model through the same steps, without Kaldi, Python or Docker. On a four-core x86 server an hour takes about ten seconds, plus the download.
+It is a Go port of [bbc-speech-segmenter](https://github.com/bbc/bbc-speech-segmenter) by BBC Research & Development. It runs the same model through the same steps, without Kaldi, Python or Docker. On a four-core x86 server an hour of audio takes about ten seconds, plus the time ffmpeg needs to decode it.
 
 ## Install
 
@@ -23,17 +23,15 @@ The first run downloads the model, about 35 MB, from the bbc-speech-segmenter re
 ## Usage
 
 ```sh
-zwfm-speech-segments 2026-11-23_08            # ZuidWest FM, 08:00 to 09:00
-zwfm-speech-segments 2026-11-23_08 rucphen    # Radio Rucphen
-zwfm-speech-segments 2026-11-23_08 > 08.json
+zwfm-speech-segments recording.mp3
+zwfm-speech-segments https://example.org/recording.wav
+ffmpeg -i video.mkv -f wav - | zwfm-speech-segments -
 ```
 
-The hour is in Dutch local time, as the audio logger names its files. Progress goes to stderr, the JSON to stdout:
+Progress goes to stderr, the JSON to stdout:
 
 ```json
 {
-  "station": "zuidwest",
-  "start": "2026-11-23T08:00:00+01:00",
   "duration": "00:59:59.990",
   "segments": [
     { "start": "00:00:00.000", "end": "00:00:12.188", "speaker": 4 },
@@ -42,11 +40,13 @@ The hour is in Dutch local time, as the audio logger names its files. Progress g
 }
 ```
 
-Segment times count from the start of the hour. Between segments the model heard no speech: music, jingles or silence. Speaker 1 is the voice with the most speaking time in that hour. The model groups similar voices; it does not know who is speaking, and the numbers only hold within one hour.
+Times count from the start of the recording. Between segments the model heard no speech, for example music or silence. Speaker 1 is the voice with the most speaking time in the recording. The model groups similar voices; it does not know who is speaking, and the numbers only hold within one recording.
+
+Recordings can be up to about 6.8 hours long. Memory grows with the square of the length, because every 0.75 seconds is compared with every other: about 200 MB for one hour, 1.7 GB for three hours and over 8 GB near the limit.
 
 ## How it works
 
-1. ffmpeg decodes the hour to 16 kHz mono.
+1. ffmpeg decodes the audio to 16 kHz mono.
 2. The audio becomes MFCC features, with Kaldi's settings and rounding.
 3. A neural network turns every 1.5 seconds of audio, in steps of 0.75 seconds, into an x-vector: a fingerprint of the voice.
 4. A classifier keeps the x-vectors that contain speech. All x-vectors are scored against each other with PLDA and clustered into voices. Neighbouring windows are then merged into segments.
@@ -55,9 +55,9 @@ The heavy matrix work runs on hand-written AVX2 kernels on x86 and NEON kernels 
 
 ## Accuracy
 
-Every step was checked against a run of the original Kaldi recipe on the same hour. Given the same input, the x-vectors match to a cosine similarity of 0.999999997, and the final segments match exactly.
+Every step was checked against a run of the original Kaldi recipe on the same hour of radio. Given the same input, the x-vectors match to a cosine similarity of 0.999999997, and the final segments match exactly.
 
-From MP3 to JSON, speech and non-speech agree with the original at least 99.9 percent of the time. Speaker numbers agree less, between roughly 80 and 99 percent of the speech time. Kaldi adds a little random noise to the audio (dither) that cannot be reproduced, and the clustering reacts to small differences like that: runs of this port with different noise differ from each other just as much. Treat the speaker numbers as a rough grouping.
+From audio to JSON, speech and non-speech agree with the original at least 99.9 percent of the time. Speaker numbers agree less, between roughly 80 and 99 percent of the speech time. Kaldi adds a little random noise to the audio (dither) that cannot be reproduced, and the clustering reacts to small differences like that: runs of this port with different noise differ from each other just as much. Treat the speaker numbers as a rough grouping.
 
 ## Development
 

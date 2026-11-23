@@ -221,7 +221,10 @@ func TestRun(t *testing.T) {
 	}
 
 	start := time.Now()
-	segs := m.Run(g.wins, g.xvecs)
+	segs, err := m.Run(g.wins, g.xvecs)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Logf("Run: %v for %d x-vectors", time.Since(start), n)
 	if got := stmText(segs); got != g.stm {
 		t.Errorf("diarize.stm differs:\n%s", firstDiff(got, g.stm))
