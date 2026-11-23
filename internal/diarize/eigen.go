@@ -69,13 +69,12 @@ func eigDesc(s *mat.SymDense) ([]float64, *mat.Dense) {
 	if !dsteqrRows(n, d, e, zt.RawMatrix().Data, zt.RawMatrix().Stride, work) {
 		panic("diarize: eigen decomposition failed")
 	}
-	out := mat.NewDense(n, n, nil)
-	for i := range n {
-		out.SetRow(i, zt.RawRowView(n-1-i))
+	for i := range n { // a is free again; reuse it for the descending rows
+		a.SetRow(i, zt.RawRowView(n-1-i))
 	}
 	floats.Scale(1/sigma, d)
 	slices.Reverse(d)
-	return d, out
+	return d, a
 }
 
 // dsteqrRows is gonum's Dsteqr with compz == lapack.EVOrig, except that zt
@@ -114,8 +113,6 @@ func dsteqrRows(n int, d, e, zt []float64, ldz int, work []float64) (ok bool) {
 		down scaletype = iota + 1
 		up
 	)
-	var iscale scaletype
-
 	for {
 		if l1 > n-1 {
 			// Order eigenvalues and eigenvectors.
@@ -141,7 +138,7 @@ func dsteqrRows(n int, d, e, zt []float64, ldz int, work []float64) (ok bool) {
 			return true
 		}
 		if l1 > 0 {
-			e[l1-1] = 0
+			e[l1-1] = 0 //nolint:gosec // G602: 0 < l1 <= n-1 here and len(e) >= n-1
 		}
 		var m int
 		if l1 <= nm1 {
@@ -165,7 +162,10 @@ func dsteqrRows(n int, d, e, zt []float64, ldz int, work []float64) (ok bool) {
 			continue
 		}
 
-		// Scale submatrix in rows and columns L to Lend
+		// Scale submatrix in rows and columns L to Lend. Like LAPACK
+		// (ISCALE = 0), every block starts unscaled; gonum v0.17.0 keeps the
+		// flag of an earlier block and would wrongly unscale this one.
+		var iscale scaletype
 		anorm := impl.Dlanst(lapack.MaxAbs, lend-l+1, d[l:], e[l:])
 		switch {
 		case anorm == 0:

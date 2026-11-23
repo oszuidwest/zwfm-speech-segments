@@ -3,6 +3,7 @@ package diarize
 import (
 	"math"
 	"math/rand/v2"
+	"slices"
 	"testing"
 
 	"gonum.org/v1/gonum/floats"
@@ -31,6 +32,9 @@ func TestEigDesc(t *testing.T) {
 		want := es.Values(nil)
 		tol := 1e-10 * tc.scale
 		vals, vecs := eigDesc(a)
+		if r, c := vecs.Dims(); len(vals) != n || r != n || c != n {
+			t.Fatalf("%+v: %d values and %dx%d vectors, want %d and %dx%d", tc, len(vals), r, c, n, n, n)
+		}
 		// The comparisons are written as !(x <= tol) so that NaN fails.
 		for k, v := range vals {
 			if w := want[n-1-k]; !(math.Abs(v-w) <= tol) {
@@ -46,6 +50,26 @@ func TestEigDesc(t *testing.T) {
 			if res := floats.Norm(av.RawVector().Data, 2); !(res <= tol) {
 				t.Errorf("%+v: eigenvector %d: |A*v - lambda*v| = %g", tc, k, res)
 			}
+		}
+	}
+}
+
+// TestDsteqrRowsBlockScaling pins that every block of a split tridiagonal
+// matrix starts unscaled: a tiny first block is scaled up, and the normal
+// second block must keep its eigenvalues 1.5 ± sqrt(0.5).
+func TestDsteqrRowsBlockScaling(t *testing.T) {
+	d := []float64{1e-300, 2e-300, 1, 2}
+	e := []float64{1e-300, 0, 0.5}
+	zt := mat.NewDense(4, 4, nil)
+	for i := range 4 {
+		zt.Set(i, i, 1)
+	}
+	if !dsteqrRows(4, d, e, zt.RawMatrix().Data, 4, make([]float64, 8)) {
+		t.Fatal("dsteqrRows failed")
+	}
+	for _, want := range []float64{1.5 - math.Sqrt(0.5), 1.5 + math.Sqrt(0.5)} {
+		if !slices.ContainsFunc(d, func(v float64) bool { return math.Abs(v-want) <= 1e-12 }) {
+			t.Errorf("eigenvalues %v lack %g", d, want)
 		}
 	}
 }
