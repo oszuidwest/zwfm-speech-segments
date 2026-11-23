@@ -19,6 +19,11 @@ const (
 	vadThreshold     = 0.2  // --vad-threshold
 	clusterThreshold = -0.3 // --cluster-threshold
 	targetEnergy     = 0.9  // score-plda.sh --target-energy
+
+	// maxWindows is the most x-vectors Run accepts. Above it Kaldi's
+	// agglomerative-cluster switches to a two-pass method that is not ported,
+	// and the n×n score matrix grows past 4 GB.
+	maxWindows = 32767
 )
 
 // Window is the time span of one x-vector, in seconds.
@@ -93,21 +98,26 @@ func Load(modelDir string) (*Model, error) {
 
 // Run does VAD, PLDA scoring, clustering and the post-processing for one
 // recording. As in the recipe, scoring and clustering use all x-vectors;
-// only the RTTM is built from the windows that pass the VAD. Run panics if
-// wins and xvectors differ in length.
-func (m *Model) Run(wins []Window, xvectors [][]float32) []Segment {
+// only the RTTM is built from the windows that pass the VAD. Run returns an
+// error for more than maxWindows x-vectors and panics if wins and xvectors
+// differ in length.
+func (m *Model) Run(wins []Window, xvectors [][]float32) ([]Segment, error) {
 	if len(wins) != len(xvectors) {
 		panic(fmt.Sprintf("diarize: %d windows for %d x-vectors", len(wins), len(xvectors)))
 	}
+	if len(xvectors) > maxWindows {
+		return nil, fmt.Errorf("diarize: %d windows, at most %d (about %.1f hours of audio) are supported",
+			len(xvectors), maxWindows, float64(maxWindows)*0.75/3600)
+	}
 	if len(xvectors) == 0 {
-		return nil
+		return nil, nil
 	}
 	// filter_unvoiced_xvectors.py: keep windows with speech >= threshold.
 	keep := make([]bool, len(xvectors))
 	for i, p := range m.speechProbs(xvectors) {
 		keep[i] = p >= vadThreshold
 	}
-	return postProcess(wins, keep, cluster(m.scores(xvectors), len(xvectors), clusterThreshold))
+	return postProcess(wins, keep, cluster(m.scores(xvectors), len(xvectors), clusterThreshold)), nil
 }
 
 // postProcess is make_rttm.py, merge_single_xvector_clusters.py,
