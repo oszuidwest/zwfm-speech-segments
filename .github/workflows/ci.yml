@@ -10,6 +10,7 @@ on:
       - 'go.mod'
       - 'go.sum'
       - '.golangci.yml'
+      - 'testdata/**'
       - '.github/workflows/ci.yml'
   pull_request:
     branches: ['main']

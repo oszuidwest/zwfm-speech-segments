@@ -65,7 +65,7 @@ From audio to JSON, speech and non-speech agree with the original at least 99.9 
 go test ./...
 ```
 
-Some tests compare each stage with reference output of the original Kaldi recipe. They read it from `data/zuidwest/2026-11-23_08` and are skipped when it is not there.
+Some tests compare each stage with reference output of the original Kaldi recipe on a short public-domain recording. Both live in [testdata](testdata), so these tests run everywhere, also in CI. Like the program, they download the model on first use.
 
 ## Credits
 
